@@ -76,6 +76,21 @@ function pageEvent(markdown: string, sourceUrl: string): Event {
   };
 }
 
+function extractedPageEvent(fields: Record<string, unknown>, sourceUrl: string): Event {
+  const name = text(fields.name);
+  return {
+    artist: text(fields.artist) === unavailable ? text(name.split(" - ")[0]) : text(fields.artist),
+    tour: name,
+    name,
+    date: text(fields.date),
+    time: text(fields.time),
+    venue: text(fields.venue),
+    address: text(fields.address),
+    sourceUrl,
+    sourceStatus: "Ticketmaster Page",
+  };
+}
+
 async function loadTicketmasterPage(url: string): Promise<Event> {
   const apiKey = process.env.FIRECRAWL_API_KEY;
   if (!apiKey) throw new Error("This event is not indexed by Ticketmaster yet. Add FIRECRAWL_API_KEY in Vercel to enable the public-page fallback.");
@@ -88,7 +103,25 @@ async function loadTicketmasterPage(url: string): Promise<Event> {
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         url,
-        formats: ["markdown"],
+        formats: [
+          "markdown",
+          {
+            type: "json",
+            prompt: "Extract only the event facts visibly published on this Ticketmaster page. Use 'Unavailable' for any missing value.",
+            schema: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                artist: { type: "string" },
+                date: { type: "string" },
+                time: { type: "string" },
+                venue: { type: "string" },
+                address: { type: "string" },
+              },
+              required: ["name", "artist", "date", "time", "venue", "address"],
+            },
+          },
+        ],
         onlyMainContent: false,
         waitFor: config.firecrawlWaitMs,
         location: { country: "US", languages: ["en-US"] },
@@ -103,7 +136,8 @@ async function loadTicketmasterPage(url: string): Promise<Event> {
       if (response.status === 429) throw new Error("Firecrawl is rate-limited. Please try again in a moment.");
       throw new Error(`Firecrawl could not read this Ticketmaster page (status ${response.status}).`);
     }
-    const raw = (await response.json()) as { data?: { markdown?: unknown } };
+    const raw = (await response.json()) as { data?: { markdown?: unknown; json?: unknown } };
+    if (raw.data?.json && typeof raw.data.json === "object" && !Array.isArray(raw.data.json)) return extractedPageEvent(raw.data.json as Record<string, unknown>, url);
     if (typeof raw.data?.markdown !== "string" || !raw.data.markdown.trim()) throw new Error("Firecrawl reached Ticketmaster but did not return event details.");
     return pageEvent(raw.data.markdown, url);
   } finally {
