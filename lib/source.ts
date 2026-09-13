@@ -175,7 +175,7 @@ async function loadCachedTicketmasterEvent(eventId: string, apiKey: string): Pro
       }
     },
     ["ticketmaster-event", eventId],
-    { revalidate: 172800, tags: [`event-${eventId}`] },
+    { revalidate: 604800, tags: [`event-${eventId}`] },
   )();
 }
 
@@ -205,11 +205,19 @@ export async function loadEvent(url: string): Promise<Event> {
   const ticketmaster = ticketmasterUrl(url);
   const apiKey = process.env.TICKETMASTER_API_KEY;
   if (!apiKey) throw new Error("Ticketmaster is not configured yet. Add TICKETMASTER_API_KEY in Vercel.");
-  return unstable_cache(
-    () => loadEventFromSources(ticketmaster, apiKey),
+  const result = await unstable_cache(
+    async () => {
+      try {
+        return { event: await loadEventFromSources(ticketmaster, apiKey) };
+      } catch (reason) {
+        return { error: reason instanceof Error ? reason.message : "The event could not be loaded." };
+      }
+    },
     ["event-brief", ticketmaster.eventId],
-    { revalidate: 172800, tags: [`event-${ticketmaster.eventId}`] },
+    { revalidate: 604800, tags: [`event-${ticketmaster.eventId}`] },
   )();
+  if ("error" in result) throw new Error(result.error);
+  return result.event;
 }
 
 async function loadVenueRulesLive(eventVenue?: string): Promise<Venue> {
@@ -256,7 +264,7 @@ export async function loadVenueRules(eventVenue?: string): Promise<Venue> {
   return unstable_cache(
     () => loadVenueRulesLive(venue.name),
     ["venue-rules", venue.id],
-    { revalidate: 86400, tags: [`venue-${venue.id}`] },
+    { revalidate: 604800, tags: [`venue-${venue.id}`] },
   )();
 }
 

@@ -17,8 +17,13 @@ const containerVariants = { hidden: {}, visible: { transition: { staggerChildren
 const itemVariants = { hidden: { opacity: 0, y: 16 }, visible: { opacity: 1, y: 0, transition: { duration: 0.35 } } };
 const venueRefreshKey = "soundcheck.venue-refresh";
 
-function easternDayKey() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+function easternWeekKey() {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+  const date = new Date(Date.UTC(value("year"), value("month") - 1, value("day")));
+  const mondayOffset = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - mondayOffset);
+  return date.toISOString().slice(0, 10);
 }
 
 export default function Home() {
@@ -39,7 +44,7 @@ export default function Home() {
   const [demoLoading, setDemoLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState(0);
   const [lastVenueRefresh, setLastVenueRefresh] = useState<string | null>(null);
-  const [venueRefreshDay, setVenueRefreshDay] = useState<string | null>(null);
+  const [venueRefreshWeek, setVenueRefreshWeek] = useState<string | null>(null);
 
   useEffect(() => {
     if (!demoLoading) return;
@@ -61,17 +66,21 @@ export default function Home() {
   }, [historyHydrated, latestHistoryEvent, event]);
 
   useEffect(() => {
+    if (!supportedVenue) return;
+    let refreshedAt: string | null = null;
+    let refreshWeek: string | null = null;
     try {
-      const stored = JSON.parse(window.localStorage.getItem(venueRefreshKey) ?? "null") as { refreshedAt?: unknown; day?: unknown } | null;
+      const stored = JSON.parse(window.localStorage.getItem(`${venueRefreshKey}-${supportedVenue.id}`) ?? "null") as { refreshedAt?: unknown; week?: unknown } | null;
       if (typeof stored?.refreshedAt === "string") {
-        const refreshedAt = stored.refreshedAt;
-        const refreshDay = typeof stored.day === "string" ? stored.day : null;
-        window.setTimeout(() => { setLastVenueRefresh(refreshedAt); setVenueRefreshDay(refreshDay); }, 0);
+        refreshedAt = stored.refreshedAt;
+        refreshWeek = typeof stored.week === "string" ? stored.week : null;
       }
     } catch {
       window.localStorage.removeItem(venueRefreshKey);
     }
-  }, []);
+    const hydrate = window.setTimeout(() => { setLastVenueRefresh(refreshedAt); setVenueRefreshWeek(refreshWeek); }, 0);
+    return () => window.clearTimeout(hydrate);
+  }, [supportedVenue]);
 
   async function loadContext(eventDetails: Event, freshVenue = false) {
     setContextLoading(true);
@@ -84,11 +93,11 @@ export default function Home() {
       if (result.venue) setVenue(result.venue);
       if (result.weather) setWeather(result.weather);
       if (result.supportedVenue) setSupportedVenue(result.supportedVenue);
-      if (freshVenue) {
+      if (freshVenue && result.supportedVenue) {
         const refreshedAt = new Date().toISOString();
-        window.localStorage.setItem(venueRefreshKey, JSON.stringify({ day: easternDayKey(), refreshedAt }));
+        window.localStorage.setItem(`${venueRefreshKey}-${result.supportedVenue.id}`, JSON.stringify({ week: easternWeekKey(), refreshedAt }));
         setLastVenueRefresh(refreshedAt);
-        setVenueRefreshDay(easternDayKey());
+        setVenueRefreshWeek(easternWeekKey());
       }
     } finally {
       setContextLoading(false);
@@ -134,13 +143,13 @@ export default function Home() {
   }
 
   async function refreshVenueData() {
-    if (!event) return;
-    const stored = JSON.parse(window.localStorage.getItem(venueRefreshKey) ?? "null") as { day?: unknown } | null;
-    if (stored?.day === easternDayKey()) return;
+    if (!event || !supportedVenue) return;
+    const stored = JSON.parse(window.localStorage.getItem(`${venueRefreshKey}-${supportedVenue.id}`) ?? "null") as { week?: unknown } | null;
+    if (stored?.week === easternWeekKey()) return;
     await loadContext(event, true);
   }
 
-  const refreshedToday = venueRefreshDay === easternDayKey();
+  const refreshedThisWeek = venueRefreshWeek === easternWeekKey();
 
   function toggleChecklist(index: number) {
     const next = checked.length === config.checklist.length ? [...checked] : config.checklist.map(() => false);
@@ -178,7 +187,7 @@ export default function Home() {
           </motion.div>
 
           <motion.div variants={itemVariants} className="mt-5 grid gap-5 lg:grid-cols-3">
-          <article className="border-2 border-[#193a68] bg-[#eef8ff] p-6 shadow-[4px_4px_0_#193a68]"><div className="flex items-center justify-between gap-3"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Venue rules</p><SectionBadge status={venue?.sourceStatus ?? "Unavailable"} /></div>{contextLoading ? <p className="mt-5 text-sm text-[#31577f]">Loading official venue guidance…</p> : venue?.rules.length ? <ul className="mt-5 space-y-3 text-sm leading-6 text-[#284b76]">{venue.rules.map((rule) => <li key={rule} className="border-l-2 border-[#5baeea] pl-3">{rule}</li>)}</ul> : <p className="mt-5 text-sm text-[#52739a]">{supportedVenue ? "Official venue guidance is unavailable right now." : "This venue is not supported yet."}</p>}{supportedVenue && <><a className="mt-6 inline-block text-sm font-bold text-[#31577f] underline decoration-2 underline-offset-4" href={supportedVenue.guideUrl} target="_blank" rel="noreferrer">Open official venue guide ↗</a><div className="mt-5 border-t border-[#193a68] pt-4"><button onClick={() => void refreshVenueData()} disabled={refreshedToday || contextLoading} className="border border-[#193a68] bg-white px-3 py-2 text-sm font-black text-[#183153] shadow-[2px_2px_0_#193a68] disabled:cursor-not-allowed disabled:opacity-50">{refreshedToday ? "Venue data refreshed today" : "Refresh official venue data"}</button><p className="mt-3 text-xs leading-5 text-[#52739a]">{lastVenueRefresh ? `Last refreshed ${new Date(lastVenueRefresh).toLocaleString()} · available again after midnight ET.` : "Official venue data is cached for 24 hours. One refresh is available each day, resetting at midnight ET."}</p></div></>}</article>
+          <article className="border-2 border-[#193a68] bg-[#eef8ff] p-6 shadow-[4px_4px_0_#193a68]"><div className="flex items-center justify-between gap-3"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Venue rules</p><SectionBadge status={venue?.sourceStatus ?? "Unavailable"} /></div>{contextLoading ? <p className="mt-5 text-sm text-[#31577f]">Loading official venue guidance…</p> : venue?.rules.length ? <ul className="mt-5 space-y-3 text-sm leading-6 text-[#284b76]">{venue.rules.map((rule) => <li key={rule} className="border-l-2 border-[#5baeea] pl-3">{rule}</li>)}</ul> : <p className="mt-5 text-sm text-[#52739a]">{supportedVenue ? "Official venue guidance is unavailable right now." : "This venue is not supported yet."}</p>}{supportedVenue && <><a className="mt-6 inline-block text-sm font-bold text-[#31577f] underline decoration-2 underline-offset-4" href={supportedVenue.guideUrl} target="_blank" rel="noreferrer">Open official venue guide ↗</a><div className="mt-5 border-t border-[#193a68] pt-4"><button onClick={() => void refreshVenueData()} disabled={refreshedThisWeek || contextLoading} className="border border-[#193a68] bg-white px-3 py-2 text-sm font-black text-[#183153] shadow-[2px_2px_0_#193a68] disabled:cursor-not-allowed disabled:opacity-50">{refreshedThisWeek ? "Venue data refreshed this week" : "Refresh official venue data"}</button><p className="mt-3 text-xs leading-5 text-[#52739a]">{lastVenueRefresh ? `Last refreshed ${new Date(lastVenueRefresh).toLocaleString()} · available again next week.` : "Official venue data is cached for 7 days. One refresh is available per venue each week."}</p></div></>}</article>
           <article className="border-2 border-[#193a68] bg-white p-6 shadow-[4px_4px_0_#193a68]"><div className="flex items-center justify-between gap-3"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Event-day weather</p><SectionBadge status={weather?.sourceStatus ?? "Unavailable"} /></div><p className="mt-5 text-lg font-black leading-7 text-[#183153]">{contextLoading ? "Checking the forecast…" : weather?.summary ?? "Unavailable"}</p><p className="mt-4 text-sm leading-6 text-[#52739a]">Live forecasts are typically available closer to the event date.</p></article>
           <article className="border-2 border-[#193a68] bg-[#ccecff] p-6 shadow-[4px_4px_0_#193a68]"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Getting there</p><h2 className="mt-3 text-2xl font-black text-[#183153]">Make a route plan</h2><p className="mt-3 text-sm leading-6 text-[#31577f]">{supportedVenue?.transport.description ?? "Route details appear for supported venues."}</p>{supportedVenue && <div className="mt-5 flex flex-wrap gap-3"><a className="border border-[#193a68] bg-white px-3 py-2 text-sm font-bold text-[#183153] shadow-[2px_2px_0_#193a68]" href={supportedVenue.transport.primaryUrl} target="_blank" rel="noreferrer">{supportedVenue.transport.primaryLabel} ↗</a><a className="border border-[#193a68] bg-white px-3 py-2 text-sm font-bold text-[#183153] shadow-[2px_2px_0_#193a68]" href={supportedVenue.transport.directions} target="_blank" rel="noreferrer">Directions ↗</a><a className="border border-[#193a68] bg-white px-3 py-2 text-sm font-bold text-[#183153] shadow-[2px_2px_0_#193a68]" href={supportedVenue.transport.parking} target="_blank" rel="noreferrer">Parking ↗</a></div>}</article>
           </motion.div>
