@@ -9,3 +9,4 @@
 7. Ticketmaster event URLs fall back to sourced public-page details when Discovery API data is unavailable.
 8. The soft neobrutalist interface is readable at desktop and mobile widths, with no gradients or blurred shadows.
 9. Phase 2: official venue rules, weather fallback, transportation links, and the expanded checklist work without blanking the event brief.
+10. Phase 3: seat-view links and Setlist.fm failures remain contained within the concert extras section.

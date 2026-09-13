@@ -13,6 +13,9 @@ export const config = Object.freeze({
     directions: "https://www.google.com/maps/dir/?api=1&destination=Prudential+Center%2C+25+Lafayette+St%2C+Newark%2C+NJ+07102",
     parking: "https://www.prucenter.com/parking",
   },
+  seatViewUrl: "https://aviewfrommyseat.com/venue/Prudential%2BCenter/",
+  setlistFmSearchUrl: "https://api.setlist.fm/1.0/search/setlists",
+  setlistArtistName: "LE SSERAFIM",
   requestTimeoutMs: 25000,
   checklist: ["Confirm the event time", "Check bag size and prohibited items", "Review the camera policy", "Plan transit or parking", "Save your mobile ticket"] as const,
 });

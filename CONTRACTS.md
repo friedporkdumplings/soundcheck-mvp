@@ -14,7 +14,7 @@
 
 ## Source methods
 
-`loadEvent(url)`, `loadVenueRules()`, `loadWeather()`, and `loadCommunityContext()`.
+`loadEvent(url)`, `loadVenueRules()`, `loadWeather()`, `loadCommunityContext()`, and `loadSetlistHistory()`.
 
 ## DO NOT CHANGE WITHOUT ASKING
 
