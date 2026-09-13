@@ -6,3 +6,4 @@
 4. The layout is usable at mobile widths.
 5. No secret appears in any file Git tracks.
 6. Phase 1: Ticketmaster event loading, saved events, and checklist state work within the public deployment.
+7. Ticketmaster event URLs fall back to sourced public-page details when Discovery API data is unavailable.
