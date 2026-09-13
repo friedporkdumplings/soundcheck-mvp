@@ -22,10 +22,10 @@ function randomSeat(except?: string) {
 }
 
 function rating(score: number) {
-  if (score < 10) return "Getting warmed up";
-  if (score < 20) return "Quick fingers";
-  if (score < 30) return "Ticketing ready";
-  return "Queue demon";
+  if (score < 10) return "it will be difficult to get tickets twin";
+  if (score < 20) return "lock in bro";
+  if (score < 30) return "tickets secured";
+  return "fast fingers tickets secured";
 }
 
 export default function PracticePage() {
