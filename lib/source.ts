@@ -90,9 +90,14 @@ async function loadTicketmasterPage(url: string): Promise<Event> {
       signal: controller.signal,
       cache: "no-store",
     });
-    if (!response.ok) throw new Error("Ticketmaster could not load that event right now.");
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) throw new Error("Firecrawl rejected FIRECRAWL_API_KEY. Check the key in Vercel.");
+      if (response.status === 402) throw new Error("Firecrawl needs available credits to read this Ticketmaster page.");
+      if (response.status === 429) throw new Error("Firecrawl is rate-limited. Please try again in a moment.");
+      throw new Error(`Firecrawl could not read this Ticketmaster page (status ${response.status}).`);
+    }
     const raw = (await response.json()) as { data?: { markdown?: unknown } };
-    if (typeof raw.data?.markdown !== "string" || !raw.data.markdown.trim()) throw new Error("Ticketmaster could not load that event right now.");
+    if (typeof raw.data?.markdown !== "string" || !raw.data.markdown.trim()) throw new Error("Firecrawl reached Ticketmaster but did not return event details.");
     return pageEvent(raw.data.markdown, url);
   } finally {
     clearTimeout(timeout);
