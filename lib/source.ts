@@ -1,4 +1,5 @@
 import { config, supportedVenueFor } from "./config";
+import { unstable_cache } from "next/cache";
 
 export type SourceStatus = "Event Source" | "Ticketmaster Page" | "Official" | "Live weather" | "Unavailable";
 
@@ -157,22 +158,35 @@ async function loadTicketmasterPage(url: string): Promise<Event> {
   }
 }
 
+async function loadCachedTicketmasterEvent(eventId: string, apiKey: string): Promise<Record<string, unknown> | null> {
+  return unstable_cache(
+    async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs);
+      try {
+        const response = await fetch(
+          `${config.ticketmasterBaseUrl}/events/${eventId}.json?apikey=${encodeURIComponent(apiKey)}`,
+          { signal: controller.signal, cache: "no-store" },
+        );
+        if (!response.ok) return null;
+        return (await response.json()) as Record<string, unknown>;
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
+    ["ticketmaster-event", eventId],
+    { revalidate: 3600, tags: [`event-${eventId}`] },
+  )();
+}
+
 export async function loadEvent(url: string): Promise<Event> {
   const ticketmaster = ticketmasterUrl(url);
 
   const apiKey = process.env.TICKETMASTER_API_KEY;
   if (!apiKey) throw new Error("Ticketmaster is not configured yet. Add TICKETMASTER_API_KEY in Vercel.");
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs);
-  try {
-    const response = await fetch(
-      `${config.ticketmasterBaseUrl}/events/${ticketmaster.eventId}.json?apikey=${encodeURIComponent(apiKey)}`,
-      { signal: controller.signal, cache: "no-store" },
-    );
-    if (!response.ok) return loadTicketmasterPage(ticketmaster.url);
-
-    const raw = (await response.json()) as Record<string, unknown>;
+  const raw = await loadCachedTicketmasterEvent(ticketmaster.eventId, apiKey);
+  if (!raw) return loadTicketmasterPage(ticketmaster.url);
     const venues = ((raw._embedded as Record<string, unknown> | undefined)?.venues ?? []) as Record<string, unknown>[];
     const venueRecord = venues[0] ?? {};
     const location = (venueRecord.location ?? {}) as Record<string, unknown>;
@@ -190,9 +204,6 @@ export async function loadEvent(url: string): Promise<Event> {
       sourceUrl: ticketmaster.url,
       sourceStatus: "Event Source",
     };
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 export async function loadVenueRules(eventVenue?: string): Promise<Venue> {
