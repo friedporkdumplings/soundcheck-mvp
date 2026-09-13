@@ -48,7 +48,15 @@ export async function loadEvent(url: string): Promise<Event> {
       `${config.ticketmasterBaseUrl}/events/${match[1]}.json?apikey=${encodeURIComponent(apiKey)}`,
       { signal: controller.signal, cache: "no-store" },
     );
-    if (!response.ok) throw new Error("Ticketmaster could not load that event.");
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        throw new Error("Ticketmaster rejected the configured API key. Check TICKETMASTER_API_KEY in Vercel.");
+      }
+      if (response.status === 404) {
+        throw new Error("Ticketmaster could not find that event.");
+      }
+      throw new Error("Ticketmaster could not load that event right now.");
+    }
 
     const raw = (await response.json()) as Record<string, unknown>;
     const venues = ((raw._embedded as Record<string, unknown> | undefined)?.venues ?? []) as Record<string, unknown>[];
