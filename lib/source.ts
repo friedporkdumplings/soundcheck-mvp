@@ -175,16 +175,11 @@ async function loadCachedTicketmasterEvent(eventId: string, apiKey: string): Pro
       }
     },
     ["ticketmaster-event", eventId],
-    { revalidate: 3600, tags: [`event-${eventId}`] },
+    { revalidate: 172800, tags: [`event-${eventId}`] },
   )();
 }
 
-export async function loadEvent(url: string): Promise<Event> {
-  const ticketmaster = ticketmasterUrl(url);
-
-  const apiKey = process.env.TICKETMASTER_API_KEY;
-  if (!apiKey) throw new Error("Ticketmaster is not configured yet. Add TICKETMASTER_API_KEY in Vercel.");
-
+async function loadEventFromSources(ticketmaster: { url: string; eventId: string }, apiKey: string): Promise<Event> {
   const raw = await loadCachedTicketmasterEvent(ticketmaster.eventId, apiKey);
   if (!raw) return loadTicketmasterPage(ticketmaster.url);
     const venues = ((raw._embedded as Record<string, unknown> | undefined)?.venues ?? []) as Record<string, unknown>[];
@@ -206,7 +201,18 @@ export async function loadEvent(url: string): Promise<Event> {
     };
 }
 
-export async function loadVenueRules(eventVenue?: string): Promise<Venue> {
+export async function loadEvent(url: string): Promise<Event> {
+  const ticketmaster = ticketmasterUrl(url);
+  const apiKey = process.env.TICKETMASTER_API_KEY;
+  if (!apiKey) throw new Error("Ticketmaster is not configured yet. Add TICKETMASTER_API_KEY in Vercel.");
+  return unstable_cache(
+    () => loadEventFromSources(ticketmaster, apiKey),
+    ["event-brief", ticketmaster.eventId],
+    { revalidate: 172800, tags: [`event-${ticketmaster.eventId}`] },
+  )();
+}
+
+async function loadVenueRulesLive(eventVenue?: string): Promise<Venue> {
   const venue = supportedVenueFor(eventVenue);
   if (!venue) return { name: eventVenue || unavailable, rules: [], sourceStatus: "Unavailable" };
   const apiKey = process.env.FIRECRAWL_API_KEY;
@@ -242,6 +248,16 @@ export async function loadVenueRules(eventVenue?: string): Promise<Venue> {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function loadVenueRules(eventVenue?: string): Promise<Venue> {
+  const venue = supportedVenueFor(eventVenue);
+  if (!venue) return { name: eventVenue || unavailable, rules: [], sourceStatus: "Unavailable" };
+  return unstable_cache(
+    () => loadVenueRulesLive(venue.name),
+    ["venue-rules", venue.id],
+    { revalidate: 86400, tags: [`venue-${venue.id}`] },
+  )();
 }
 
 function weatherDate(value: string) {

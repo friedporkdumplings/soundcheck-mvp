@@ -9,16 +9,23 @@ import { SectionBadge } from "@/components/ui/SectionBadge";
 import { config, type SupportedVenue } from "@/lib/config";
 import type { Event, Venue, Weather } from "@/lib/source";
 import { useSavedEvents, type SavedEvent } from "@/hooks/useSavedEvents";
+import { useEventHistory } from "@/hooks/useEventHistory";
 
 const checklistKey = "soundcheck.checklist";
 const loadingMessages = ["Verifying Ticketmaster link…", "Extracting venue guidelines…", "Loading live weather forecast…", "Preparing your concert brief…"];
 const containerVariants = { hidden: {}, visible: { transition: { staggerChildren: 0.2 } } };
 const itemVariants = { hidden: { opacity: 0, y: 16 }, visible: { opacity: 1, y: 0, transition: { duration: 0.35 } } };
+const venueRefreshKey = "soundcheck.venue-refresh";
+
+function easternDayKey() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
 
 export default function Home() {
   const [url, setUrl] = useState<string>(config.defaultEventUrl);
   const [event, setEvent] = useState<Event | null>(null);
   const { savedEvents, hydrated: savedEventsHydrated, isSaved, toggle: toggleSavedEvent } = useSavedEvents();
+  const { events: historyEvents, hydrated: historyHydrated, latest: latestHistoryEvent, find: findHistoryEvent, remember: rememberEvent } = useEventHistory();
   const [checked, setChecked] = useState<boolean[]>(() => {
     if (typeof window === "undefined") return config.checklist.map(() => false);
     try { return JSON.parse(localStorage.getItem(checklistKey) ?? "[]") as boolean[]; } catch { return config.checklist.map(() => false); }
@@ -31,6 +38,8 @@ export default function Home() {
   const [contextLoading, setContextLoading] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState(0);
+  const [lastVenueRefresh, setLastVenueRefresh] = useState<string | null>(null);
+  const [venueRefreshDay, setVenueRefreshDay] = useState<string | null>(null);
 
   useEffect(() => {
     if (!demoLoading) return;
@@ -39,17 +48,48 @@ export default function Home() {
     return () => { window.clearInterval(interval); window.clearTimeout(finish); };
   }, [demoLoading]);
 
-  async function loadContext(eventDetails: Event) {
+  useEffect(() => {
+    if (!historyHydrated || !latestHistoryEvent || event) return;
+    const restore = window.setTimeout(() => {
+      setUrl(latestHistoryEvent.sourceUrl);
+      setEvent(latestHistoryEvent);
+      void loadContext(latestHistoryEvent);
+      setLoadingStep(0);
+      setDemoLoading(true);
+    }, 0);
+    return () => window.clearTimeout(restore);
+  }, [historyHydrated, latestHistoryEvent, event]);
+
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(venueRefreshKey) ?? "null") as { refreshedAt?: unknown; day?: unknown } | null;
+      if (typeof stored?.refreshedAt === "string") {
+        const refreshedAt = stored.refreshedAt;
+        const refreshDay = typeof stored.day === "string" ? stored.day : null;
+        window.setTimeout(() => { setLastVenueRefresh(refreshedAt); setVenueRefreshDay(refreshDay); }, 0);
+      }
+    } catch {
+      window.localStorage.removeItem(venueRefreshKey);
+    }
+  }, []);
+
+  async function loadContext(eventDetails: Event, freshVenue = false) {
     setContextLoading(true);
     setVenue(null);
     setWeather(null);
     setSupportedVenue(null);
     try {
-      const response = await fetch("/api/context", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: eventDetails.date, venue: eventDetails.venue }) });
+      const response = await fetch("/api/context", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: eventDetails.date, venue: eventDetails.venue, freshVenue }) });
       const result = (await response.json()) as { venue?: Venue; weather?: Weather; supportedVenue?: SupportedVenue | null };
       if (result.venue) setVenue(result.venue);
       if (result.weather) setWeather(result.weather);
       if (result.supportedVenue) setSupportedVenue(result.supportedVenue);
+      if (freshVenue) {
+        const refreshedAt = new Date().toISOString();
+        window.localStorage.setItem(venueRefreshKey, JSON.stringify({ day: easternDayKey(), refreshedAt }));
+        setLastVenueRefresh(refreshedAt);
+        setVenueRefreshDay(easternDayKey());
+      }
     } finally {
       setContextLoading(false);
     }
@@ -60,11 +100,20 @@ export default function Home() {
     setError("");
     setLoadingStep(0);
     setDemoLoading(false);
+    const cached = findHistoryEvent(eventUrl);
+    if (cached) {
+      setEvent(cached);
+      void loadContext(cached);
+      setDemoLoading(true);
+      setLoading(false);
+      return;
+    }
     try {
       const response = await fetch("/api/event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: eventUrl }) });
       const result = (await response.json()) as { event?: Event; error?: string };
       if (!response.ok || !result.event) throw new Error(result.error ?? "The event could not be loaded.");
       setEvent(result.event);
+      rememberEvent(result.event);
       void loadContext(result.event);
       setDemoLoading(true);
     } catch (reason) {
@@ -84,6 +133,15 @@ export default function Home() {
     void loadEventUrl(savedEvent.sourceUrl);
   }
 
+  async function refreshVenueData() {
+    if (!event) return;
+    const stored = JSON.parse(window.localStorage.getItem(venueRefreshKey) ?? "null") as { day?: unknown } | null;
+    if (stored?.day === easternDayKey()) return;
+    await loadContext(event, true);
+  }
+
+  const refreshedToday = venueRefreshDay === easternDayKey();
+
   function toggleChecklist(index: number) {
     const next = checked.length === config.checklist.length ? [...checked] : config.checklist.map(() => false);
     next[index] = !next[index];
@@ -96,7 +154,7 @@ export default function Home() {
       <div className="mx-auto max-w-6xl">
         <header className="flex items-center justify-between border-b-2 border-[#193a68] pb-5">
           <div className="flex items-center gap-3"><span className="h-3 w-3 rounded-full border border-[#193a68] bg-[#8ed1ff]" /><span className="text-sm font-black tracking-[0.22em] text-[#183153] uppercase">Soundcheck</span></div>
-          <nav className="flex items-center gap-4"><a href="#saved-events" className="text-xs font-bold tracking-[0.12em] text-[#31577f] uppercase underline decoration-2 underline-offset-4">Saved events{savedEventsHydrated ? ` (${savedEvents.length})` : ""}</a><span className="text-xs font-bold tracking-[0.12em] text-[#52739a] uppercase">Your concert brief</span></nav>
+          <nav className="flex items-center gap-4"><a href="#history" className="text-xs font-bold tracking-[0.12em] text-[#31577f] uppercase underline decoration-2 underline-offset-4">History{historyHydrated ? ` (${historyEvents.length})` : ""}</a><a href="#saved-events" className="text-xs font-bold tracking-[0.12em] text-[#31577f] uppercase underline decoration-2 underline-offset-4">Saved{savedEventsHydrated ? ` (${savedEvents.length})` : ""}</a><span className="text-xs font-bold tracking-[0.12em] text-[#52739a] uppercase">Your concert brief</span></nav>
         </header>
 
         <section className="py-14 sm:py-20"><p className="mb-4 text-sm font-bold tracking-[0.16em] text-[#52739a] uppercase">Get ready for the show</p><h1 className="max-w-4xl text-5xl font-black tracking-[-0.055em] text-[#183153] sm:text-7xl">Less searching.<br />More showing up.</h1><p className="mt-6 max-w-2xl text-lg leading-8 text-[#31577f]">Soundcheck turns a Ticketmaster event link into one clear concert-day brief—timing, venue details, and what to do before you go.</p></section>
@@ -120,7 +178,7 @@ export default function Home() {
           </motion.div>
 
           <motion.div variants={itemVariants} className="mt-5 grid gap-5 lg:grid-cols-3">
-          <article className="border-2 border-[#193a68] bg-[#eef8ff] p-6 shadow-[4px_4px_0_#193a68]"><div className="flex items-center justify-between gap-3"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Venue rules</p><SectionBadge status={venue?.sourceStatus ?? "Unavailable"} /></div>{contextLoading ? <p className="mt-5 text-sm text-[#31577f]">Loading official venue guidance…</p> : venue?.rules.length ? <ul className="mt-5 space-y-3 text-sm leading-6 text-[#284b76]">{venue.rules.map((rule) => <li key={rule} className="border-l-2 border-[#5baeea] pl-3">{rule}</li>)}</ul> : <p className="mt-5 text-sm text-[#52739a]">{supportedVenue ? "Official venue guidance is unavailable right now." : "This venue is not supported yet."}</p>}{supportedVenue && <a className="mt-6 inline-block text-sm font-bold text-[#31577f] underline decoration-2 underline-offset-4" href={supportedVenue.guideUrl} target="_blank" rel="noreferrer">Open official venue guide ↗</a>}</article>
+          <article className="border-2 border-[#193a68] bg-[#eef8ff] p-6 shadow-[4px_4px_0_#193a68]"><div className="flex items-center justify-between gap-3"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Venue rules</p><SectionBadge status={venue?.sourceStatus ?? "Unavailable"} /></div>{contextLoading ? <p className="mt-5 text-sm text-[#31577f]">Loading official venue guidance…</p> : venue?.rules.length ? <ul className="mt-5 space-y-3 text-sm leading-6 text-[#284b76]">{venue.rules.map((rule) => <li key={rule} className="border-l-2 border-[#5baeea] pl-3">{rule}</li>)}</ul> : <p className="mt-5 text-sm text-[#52739a]">{supportedVenue ? "Official venue guidance is unavailable right now." : "This venue is not supported yet."}</p>}{supportedVenue && <><a className="mt-6 inline-block text-sm font-bold text-[#31577f] underline decoration-2 underline-offset-4" href={supportedVenue.guideUrl} target="_blank" rel="noreferrer">Open official venue guide ↗</a><div className="mt-5 border-t border-[#193a68] pt-4"><button onClick={() => void refreshVenueData()} disabled={refreshedToday || contextLoading} className="border border-[#193a68] bg-white px-3 py-2 text-sm font-black text-[#183153] shadow-[2px_2px_0_#193a68] disabled:cursor-not-allowed disabled:opacity-50">{refreshedToday ? "Venue data refreshed today" : "Refresh official venue data"}</button><p className="mt-3 text-xs leading-5 text-[#52739a]">{lastVenueRefresh ? `Last refreshed ${new Date(lastVenueRefresh).toLocaleString()} · available again after midnight ET.` : "Official venue data is cached for 24 hours. One refresh is available each day, resetting at midnight ET."}</p></div></>}</article>
           <article className="border-2 border-[#193a68] bg-white p-6 shadow-[4px_4px_0_#193a68]"><div className="flex items-center justify-between gap-3"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Event-day weather</p><SectionBadge status={weather?.sourceStatus ?? "Unavailable"} /></div><p className="mt-5 text-lg font-black leading-7 text-[#183153]">{contextLoading ? "Checking the forecast…" : weather?.summary ?? "Unavailable"}</p><p className="mt-4 text-sm leading-6 text-[#52739a]">Live forecasts are typically available closer to the event date.</p></article>
           <article className="border-2 border-[#193a68] bg-[#ccecff] p-6 shadow-[4px_4px_0_#193a68]"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Getting there</p><h2 className="mt-3 text-2xl font-black text-[#183153]">Make a route plan</h2><p className="mt-3 text-sm leading-6 text-[#31577f]">{supportedVenue?.transport.description ?? "Route details appear for supported venues."}</p>{supportedVenue && <div className="mt-5 flex flex-wrap gap-3"><a className="border border-[#193a68] bg-white px-3 py-2 text-sm font-bold text-[#183153] shadow-[2px_2px_0_#193a68]" href={supportedVenue.transport.primaryUrl} target="_blank" rel="noreferrer">{supportedVenue.transport.primaryLabel} ↗</a><a className="border border-[#193a68] bg-white px-3 py-2 text-sm font-bold text-[#183153] shadow-[2px_2px_0_#193a68]" href={supportedVenue.transport.directions} target="_blank" rel="noreferrer">Directions ↗</a><a className="border border-[#193a68] bg-white px-3 py-2 text-sm font-bold text-[#183153] shadow-[2px_2px_0_#193a68]" href={supportedVenue.transport.parking} target="_blank" rel="noreferrer">Parking ↗</a></div>}</article>
           </motion.div>
@@ -132,6 +190,7 @@ export default function Home() {
         </motion.section>}
 
         {!event && !loading && !demoLoading && !error && <div className="mt-8"><EmptyState message="Paste a Ticketmaster event page to see its details and concert preparation checklist." /></div>}
+        <section id="history" className="mt-12 border-t-2 border-[#193a68] pt-8"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Previously viewed</p><p className="mt-2 text-sm text-[#52739a]">Viewed event briefs stay available on this device for 48 hours without another Ticketmaster or Firecrawl event request.</p>{historyHydrated && historyEvents.length > 0 ? <div className="mt-4 grid gap-3 sm:grid-cols-2">{historyEvents.map((item) => <button key={item.sourceUrl} onClick={() => loadSavedEvent(item)} className="border border-[#193a68] bg-[#eef8ff] p-4 text-left shadow-[3px_3px_0_#193a68] transition hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_#193a68]"><p className="font-black text-[#183153]">{item.name}</p><p className="mt-1 text-sm text-[#52739a]">{item.venue} · {item.date}</p></button>)}</div> : <p className="mt-4 text-sm text-[#52739a]">Events you load will appear here for 48 hours.</p>}</section>
         <section id="saved-events" className="mt-12 border-t-2 border-[#193a68] pt-8"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Saved events</p>{savedEventsHydrated && savedEvents.length > 0 ? <div className="mt-4 grid gap-3 sm:grid-cols-2">{savedEvents.map((item) => <button key={item.sourceUrl} onClick={() => loadSavedEvent(item)} className="border border-[#193a68] bg-white p-4 text-left shadow-[3px_3px_0_#193a68] transition hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_#193a68]"><p className="font-black text-[#183153]">{item.name}</p><p className="mt-1 text-sm text-[#52739a]">{item.venue} · {item.date}</p></button>)}</div> : <p className="mt-4 text-sm text-[#52739a]">Save an event brief to revisit it here.</p>}</section>
       </div>
     </main>
