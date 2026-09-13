@@ -6,7 +6,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { SectionBadge } from "@/components/ui/SectionBadge";
 import { config } from "@/lib/config";
-import type { Event, SetlistHistory, Venue, Weather } from "@/lib/source";
+import type { Event, Venue, Weather } from "@/lib/source";
 
 const savedKey = "soundcheck.saved-events";
 const checklistKey = "soundcheck.checklist";
@@ -27,8 +27,6 @@ export default function Home() {
   const [venue, setVenue] = useState<Venue | null>(null);
   const [weather, setWeather] = useState<Weather | null>(null);
   const [contextLoading, setContextLoading] = useState(false);
-  const [setlists, setSetlists] = useState<SetlistHistory | null>(null);
-  const [extrasLoading, setExtrasLoading] = useState(false);
 
   async function loadContext(eventDate: string) {
     setContextLoading(true);
@@ -44,18 +42,6 @@ export default function Home() {
     }
   }
 
-  async function loadExtras() {
-    setExtrasLoading(true);
-    setSetlists(null);
-    try {
-      const response = await fetch("/api/extras", { method: "POST" });
-      const result = (await response.json()) as { setlists?: SetlistHistory };
-      if (result.setlists) setSetlists(result.setlists);
-    } finally {
-      setExtrasLoading(false);
-    }
-  }
-
   async function submit(eventForm: FormEvent<HTMLFormElement>) {
     eventForm.preventDefault();
     setLoading(true);
@@ -66,7 +52,6 @@ export default function Home() {
       if (!response.ok || !result.event) throw new Error(result.error ?? "The event could not be loaded.");
       setEvent(result.event);
       void loadContext(result.event.date);
-      void loadExtras();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The event could not be loaded.");
     } finally {
@@ -118,7 +103,7 @@ export default function Home() {
 
         {event && !loading && <section className="mt-5 grid gap-5 lg:grid-cols-[.8fr_1.2fr]">
           <article className="border-2 border-[#193a68] bg-white p-6 shadow-[4px_4px_0_#193a68]"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Seat view</p><h2 className="mt-3 text-2xl font-black text-[#183153]">Picture your seat</h2><p className="mt-3 text-sm leading-6 text-[#31577f]">Browse fan-uploaded photos from Prudential Center before you buy or choose your section.</p><a className="mt-6 inline-block border border-[#193a68] bg-[#ccecff] px-4 py-3 text-sm font-black text-[#183153] shadow-[3px_3px_0_#193a68]" href={config.seatViewUrl} target="_blank" rel="noreferrer">Explore seat views ↗</a></article>
-          <article className="border-2 border-[#193a68] bg-[#eef8ff] p-6 shadow-[4px_4px_0_#193a68]"><div className="flex items-center justify-between gap-3"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Recent show history</p><SectionBadge status={setlists?.sourceStatus ?? "Unavailable"} /></div>{extrasLoading ? <p className="mt-5 text-sm text-[#31577f]">Loading recent setlists…</p> : setlists?.setlists.length ? <div className="mt-5 grid gap-3 sm:grid-cols-3">{setlists.setlists.map((setlist) => <a key={setlist.sourceUrl} className="border border-[#193a68] bg-white p-4 text-left shadow-[2px_2px_0_#193a68]" href={setlist.sourceUrl} target="_blank" rel="noreferrer"><p className="text-xs font-black text-[#52739a]">{setlist.date}</p><p className="mt-2 font-black text-[#183153]">{setlist.venue}</p><p className="mt-1 text-sm text-[#52739a]">{setlist.city}</p>{setlist.songs.length > 0 && <p className="mt-3 text-xs leading-5 text-[#31577f]">{setlist.songs.join(" · ")}</p>}</a>)}</div> : <p className="mt-5 text-sm leading-6 text-[#52739a]">{setlists?.notice ?? "Recent setlist history is unavailable."}</p>}<p className="mt-5 text-xs text-[#52739a]">Setlist.fm entries are fan-submitted and may be incomplete.</p></article>
+          <article className="border-2 border-[#193a68] bg-[#eef8ff] p-6 shadow-[4px_4px_0_#193a68]"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Recent show history</p><h2 className="mt-3 text-2xl font-black text-[#183153]">See the tour setlists</h2><p className="mt-3 text-sm leading-6 text-[#31577f]">Open LE SSERAFIM&apos;s recent fan-submitted setlists directly on Setlist.fm.</p><a className="mt-6 inline-block border border-[#193a68] bg-white px-4 py-3 text-sm font-black text-[#183153] shadow-[3px_3px_0_#193a68]" href={config.setlistArtistUrl} target="_blank" rel="noreferrer">View Recent Tour Setlists on Setlist.fm ↗</a><p className="mt-5 text-xs text-[#52739a]">Setlist.fm entries are fan-submitted and may be incomplete.</p></article>
         </section>}
 
         {!event && !loading && !error && <div className="mt-8"><EmptyState message="Paste a Ticketmaster event page to see its details and concert preparation checklist." /></div>}

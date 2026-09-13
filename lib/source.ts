@@ -1,6 +1,6 @@
 import { config } from "./config";
 
-export type SourceStatus = "Event Source" | "Ticketmaster Page" | "Official" | "Live weather" | "Setlist.fm" | "Unavailable";
+export type SourceStatus = "Event Source" | "Ticketmaster Page" | "Official" | "Live weather" | "Unavailable";
 
 export type Event = {
   artist: string;
@@ -24,9 +24,6 @@ export type Weather = {
   summary: string;
   sourceStatus: "Live weather" | "Unavailable";
 };
-
-export type Setlist = { date: string; venue: string; city: string; tour: string; songs: string[]; sourceUrl: string };
-export type SetlistHistory = { setlists: Setlist[]; sourceStatus: "Setlist.fm" | "Unavailable"; notice: string };
 
 export type CommunityContext = { tips: string[]; sourceStatus: "Unavailable" };
 
@@ -272,34 +269,6 @@ export async function loadWeather(eventDate?: string): Promise<Weather> {
   }
 }
 
-function setlistDate(value: unknown) {
-  if (typeof value !== "string") return unavailable;
-  const match = value.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-  return match ? `${match[3]}-${match[2]}-${match[1]}` : value;
-}
-
-export async function loadSetlistHistory(): Promise<SetlistHistory> {
-  const apiKey = process.env.SETLISTFM_API_KEY;
-  if (!apiKey) return { setlists: [], sourceStatus: "Unavailable", notice: "Add SETLISTFM_API_KEY in Vercel to load recent show history." };
-
-  try {
-    const params = new URLSearchParams({ artistName: config.setlistArtistName, p: "1" });
-    const response = await fetch(`${config.setlistFmSearchUrl}?${params}`, { headers: { Accept: "application/json", "x-api-key": apiKey }, cache: "no-store" });
-    if (!response.ok) return { setlists: [], sourceStatus: "Unavailable", notice: "Recent setlist history is unavailable right now." };
-    const raw = (await response.json()) as { setlist?: Array<Record<string, unknown>> };
-    const setlists = (raw.setlist ?? []).map((item) => {
-      const venue = (item.venue ?? {}) as Record<string, unknown>;
-      const city = (venue.city ?? {}) as Record<string, unknown>;
-      const tour = (item.tour ?? {}) as Record<string, unknown>;
-      const sets = Array.isArray(item.set) ? item.set : [];
-      const songs = sets.flatMap((set) => Array.isArray((set as Record<string, unknown>).song) ? (set as Record<string, unknown>).song as Record<string, unknown>[] : []).map((song) => text(song.name)).filter((song) => song !== unavailable).slice(0, 4);
-      return { date: setlistDate(item.eventDate), venue: text(venue.name), city: text(city.name), tour: text(tour.name), songs, sourceUrl: text(item.url) };
-    }).filter((setlist) => setlist.sourceUrl !== unavailable).slice(0, 3);
-    return setlists.length ? { setlists, sourceStatus: "Setlist.fm", notice: "Recent fan-submitted setlist history." } : { setlists: [], sourceStatus: "Unavailable", notice: "No recent setlist history was found." };
-  } catch {
-    return { setlists: [], sourceStatus: "Unavailable", notice: "Recent setlist history is unavailable right now." };
-  }
-}
 
 export async function loadCommunityContext(): Promise<CommunityContext> {
   return { tips: [], sourceStatus: "Unavailable" };

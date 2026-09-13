@@ -14,8 +14,7 @@ export const config = Object.freeze({
     parking: "https://www.prucenter.com/parking",
   },
   seatViewUrl: "https://aviewfrommyseat.com/venue/Prudential%2BCenter/",
-  setlistFmSearchUrl: "https://api.setlist.fm/1.0/search/setlists",
-  setlistArtistName: "LE SSERAFIM",
+  setlistArtistUrl: "https://www.setlist.fm/setlists/le-sserafim-43f2537f.html",
   requestTimeoutMs: 25000,
   checklist: ["Confirm the event time", "Check bag size and prohibited items", "Review the camera policy", "Plan transit or parking", "Save your mobile ticket"] as const,
 });
