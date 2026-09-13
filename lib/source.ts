@@ -1,6 +1,6 @@
 import { config } from "./config";
 
-export type SourceStatus = "Event Source" | "Ticketmaster Page" | "Official" | "Unavailable";
+export type SourceStatus = "Event Source" | "Ticketmaster Page" | "Official" | "Live weather" | "Unavailable";
 
 export type Event = {
   artist: string;
@@ -18,6 +18,11 @@ export type Venue = {
   name: string;
   rules: string[];
   sourceStatus: SourceStatus;
+};
+
+export type Weather = {
+  summary: string;
+  sourceStatus: "Live weather" | "Unavailable";
 };
 
 export type CommunityContext = { tips: string[]; sourceStatus: "Unavailable" };
@@ -184,11 +189,84 @@ export async function loadEvent(url: string): Promise<Event> {
 }
 
 export async function loadVenueRules(): Promise<Venue> {
-  return { name: unavailable, rules: [], sourceStatus: "Unavailable" };
+  const apiKey = process.env.FIRECRAWL_API_KEY;
+  if (!apiKey) return { name: unavailable, rules: [], sourceStatus: "Unavailable" };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs);
+  try {
+    const response = await fetch(config.firecrawlScrapeUrl, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: config.venueGuideUrl,
+        formats: [{
+          type: "json",
+          prompt: "Extract only current official Prudential Center entry rules relevant to concert guests: bag limits, backpacks, camera restrictions, and security screening. Keep each rule concise. Do not infer rules not stated on the page.",
+          schema: { type: "object", properties: { rules: { type: "array", items: { type: "string" } } }, required: ["rules"] },
+        }],
+        onlyMainContent: true,
+        waitFor: config.firecrawlWaitMs,
+        location: { country: "US", languages: ["en-US"] },
+        proxy: "auto",
+      }),
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    if (!response.ok) return { name: unavailable, rules: [], sourceStatus: "Unavailable" };
+    const raw = (await response.json()) as { data?: { json?: { rules?: unknown } } };
+    const rules = Array.isArray(raw.data?.json?.rules) ? raw.data.json.rules.filter((rule): rule is string => typeof rule === "string" && Boolean(rule.trim())).map((rule) => rule.trim()) : [];
+    return rules.length ? { name: "Prudential Center", rules, sourceStatus: "Official" } : { name: unavailable, rules: [], sourceStatus: "Unavailable" };
+  } catch {
+    return { name: unavailable, rules: [], sourceStatus: "Unavailable" };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
-export async function loadWeather() {
-  return { summary: unavailable, sourceStatus: "Unavailable" as const };
+function weatherDate(value: string) {
+  const iso = value.match(/\d{4}-\d{2}-\d{2}/)?.[0];
+  if (iso) return iso;
+  const named = value.match(/[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}/)?.[0];
+  if (!named) return null;
+  const parsed = new Date(named);
+  return Number.isNaN(parsed.valueOf()) ? null : parsed.toISOString().slice(0, 10);
+}
+
+function weatherLabel(code: number) {
+  if (code === 0) return "Clear skies";
+  if ([1, 2, 3].includes(code)) return "Partly cloudy";
+  if ([45, 48].includes(code)) return "Foggy";
+  if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return "Rain possible";
+  if ([71, 73, 75, 77, 85, 86].includes(code)) return "Snow possible";
+  if ([95, 96, 99].includes(code)) return "Thunderstorms possible";
+  return "Conditions unavailable";
+}
+
+export async function loadWeather(eventDate?: string): Promise<Weather> {
+  const date = eventDate ? weatherDate(eventDate) : null;
+  if (!date) return { summary: unavailable, sourceStatus: "Unavailable" };
+  const now = new Date();
+  const target = new Date(`${date}T12:00:00Z`);
+  const daysAway = (target.valueOf() - now.valueOf()) / 86_400_000;
+  if (daysAway < 0 || daysAway > 16) return { summary: "Forecast unavailable until closer to the event", sourceStatus: "Unavailable" };
+
+  try {
+    const location = config.prudentialCenter;
+    const params = new URLSearchParams({ latitude: String(location.latitude), longitude: String(location.longitude), daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max", timezone: location.timezone, start_date: date, end_date: date });
+    const response = await fetch(`${config.openMeteoForecastUrl}?${params}`, { cache: "no-store" });
+    if (!response.ok) return { summary: unavailable, sourceStatus: "Unavailable" };
+    const raw = (await response.json()) as { daily?: { weather_code?: number[]; temperature_2m_max?: number[]; temperature_2m_min?: number[]; precipitation_probability_max?: number[] } };
+    const daily = raw.daily;
+    const high = daily?.temperature_2m_max?.[0];
+    const low = daily?.temperature_2m_min?.[0];
+    const rain = daily?.precipitation_probability_max?.[0];
+    const code = daily?.weather_code?.[0];
+    if (typeof high !== "number" || typeof low !== "number" || typeof code !== "number") return { summary: unavailable, sourceStatus: "Unavailable" };
+    return { summary: `${weatherLabel(code)} · ${Math.round(low)}–${Math.round(high)}°C${typeof rain === "number" ? ` · ${rain}% precipitation` : ""}`, sourceStatus: "Live weather" };
+  } catch {
+    return { summary: unavailable, sourceStatus: "Unavailable" };
+  }
 }
 
 export async function loadCommunityContext(): Promise<CommunityContext> {
