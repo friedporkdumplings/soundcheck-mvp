@@ -1,3 +1,3 @@
 export function ErrorState({ message }: { message: string }) {
-  return <p className="rounded-xl border border-red-300/20 bg-red-300/10 p-4 text-sm text-red-100" role="alert">{message}</p>;
+  return <p className="rounded-xl border border-[#9a4e54] bg-[#fff2f3] p-4 text-sm text-[#742f38] shadow-[4px_4px_0_#9a4e54]" role="alert">{message}</p>;
 }

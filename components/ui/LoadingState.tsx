@@ -1,3 +1,3 @@
 export function LoadingState() {
-  return <p className="text-sm text-white/55" role="status">Loading event details…</p>;
+  return <p className="text-sm font-medium text-[#284b76]" role="status">Loading event details…</p>;
 }
