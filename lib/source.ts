@@ -1,4 +1,4 @@
-import { config } from "./config";
+import { config, supportedVenueFor } from "./config";
 
 export type SourceStatus = "Event Source" | "Ticketmaster Page" | "Official" | "Live weather" | "Unavailable";
 
@@ -188,9 +188,11 @@ export async function loadEvent(url: string): Promise<Event> {
   }
 }
 
-export async function loadVenueRules(): Promise<Venue> {
+export async function loadVenueRules(eventVenue?: string): Promise<Venue> {
+  const venue = supportedVenueFor(eventVenue);
+  if (!venue) return { name: eventVenue || unavailable, rules: [], sourceStatus: "Unavailable" };
   const apiKey = process.env.FIRECRAWL_API_KEY;
-  if (!apiKey) return { name: unavailable, rules: [], sourceStatus: "Unavailable" };
+  if (!apiKey) return { name: venue.name, rules: [], sourceStatus: "Unavailable" };
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs);
@@ -199,10 +201,10 @@ export async function loadVenueRules(): Promise<Venue> {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        url: config.venueGuideUrl,
+        url: venue.guideUrl,
         formats: [{
           type: "json",
-          prompt: "Extract only current official Prudential Center entry rules relevant to concert guests: bag limits, backpacks, camera restrictions, and security screening. Keep each rule concise. Do not infer rules not stated on the page.",
+          prompt: `Extract only current official ${venue.name} entry guidance relevant to concert guests: bag limits, backpacks, camera restrictions, and security screening. Keep each rule concise. Do not infer rules not stated on the page.`,
           schema: { type: "object", properties: { rules: { type: "array", items: { type: "string" } } }, required: ["rules"] },
         }],
         onlyMainContent: true,
@@ -213,12 +215,12 @@ export async function loadVenueRules(): Promise<Venue> {
       signal: controller.signal,
       cache: "no-store",
     });
-    if (!response.ok) return { name: unavailable, rules: [], sourceStatus: "Unavailable" };
+    if (!response.ok) return { name: venue.name, rules: [], sourceStatus: "Unavailable" };
     const raw = (await response.json()) as { data?: { json?: { rules?: unknown } } };
     const rules = Array.isArray(raw.data?.json?.rules) ? raw.data.json.rules.filter((rule): rule is string => typeof rule === "string" && Boolean(rule.trim())).map((rule) => rule.trim()) : [];
-    return rules.length ? { name: "Prudential Center", rules, sourceStatus: "Official" } : { name: unavailable, rules: [], sourceStatus: "Unavailable" };
+    return rules.length ? { name: venue.name, rules, sourceStatus: "Official" } : { name: venue.name, rules: [], sourceStatus: "Unavailable" };
   } catch {
-    return { name: unavailable, rules: [], sourceStatus: "Unavailable" };
+    return { name: venue.name, rules: [], sourceStatus: "Unavailable" };
   } finally {
     clearTimeout(timeout);
   }
@@ -243,7 +245,9 @@ function weatherLabel(code: number) {
   return "Conditions unavailable";
 }
 
-export async function loadWeather(eventDate?: string): Promise<Weather> {
+export async function loadWeather(eventDate?: string, eventVenue?: string): Promise<Weather> {
+  const venue = supportedVenueFor(eventVenue);
+  if (!venue) return { summary: unavailable, sourceStatus: "Unavailable" };
   const date = eventDate ? weatherDate(eventDate) : null;
   if (!date) return { summary: unavailable, sourceStatus: "Unavailable" };
   const now = new Date();
@@ -252,8 +256,7 @@ export async function loadWeather(eventDate?: string): Promise<Weather> {
   if (daysAway < 0 || daysAway > 16) return { summary: "Forecast unavailable until closer to the event", sourceStatus: "Unavailable" };
 
   try {
-    const location = config.prudentialCenter;
-    const params = new URLSearchParams({ latitude: String(location.latitude), longitude: String(location.longitude), daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max", timezone: location.timezone, start_date: date, end_date: date });
+    const params = new URLSearchParams({ latitude: String(venue.latitude), longitude: String(venue.longitude), daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max", timezone: venue.timezone, start_date: date, end_date: date });
     const response = await fetch(`${config.openMeteoForecastUrl}?${params}`, { cache: "no-store" });
     if (!response.ok) return { summary: unavailable, sourceStatus: "Unavailable" };
     const raw = (await response.json()) as { daily?: { weather_code?: number[]; temperature_2m_max?: number[]; temperature_2m_min?: number[]; precipitation_probability_max?: number[] } };

@@ -5,7 +5,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { SectionBadge } from "@/components/ui/SectionBadge";
-import { config } from "@/lib/config";
+import { config, type SupportedVenue } from "@/lib/config";
 import type { Event, Venue, Weather } from "@/lib/source";
 
 const savedKey = "soundcheck.saved-events";
@@ -26,17 +26,20 @@ export default function Home() {
   const [error, setError] = useState("");
   const [venue, setVenue] = useState<Venue | null>(null);
   const [weather, setWeather] = useState<Weather | null>(null);
+  const [supportedVenue, setSupportedVenue] = useState<SupportedVenue | null>(null);
   const [contextLoading, setContextLoading] = useState(false);
 
-  async function loadContext(eventDate: string) {
+  async function loadContext(eventDetails: Event) {
     setContextLoading(true);
     setVenue(null);
     setWeather(null);
+    setSupportedVenue(null);
     try {
-      const response = await fetch("/api/context", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: eventDate }) });
-      const result = (await response.json()) as { venue?: Venue; weather?: Weather };
+      const response = await fetch("/api/context", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: eventDetails.date, venue: eventDetails.venue }) });
+      const result = (await response.json()) as { venue?: Venue; weather?: Weather; supportedVenue?: SupportedVenue | null };
       if (result.venue) setVenue(result.venue);
       if (result.weather) setWeather(result.weather);
+      if (result.supportedVenue) setSupportedVenue(result.supportedVenue);
     } finally {
       setContextLoading(false);
     }
@@ -51,7 +54,7 @@ export default function Home() {
       const result = (await response.json()) as { event?: Event; error?: string };
       if (!response.ok || !result.event) throw new Error(result.error ?? "The event could not be loaded.");
       setEvent(result.event);
-      void loadContext(result.event.date);
+      void loadContext(result.event);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The event could not be loaded.");
     } finally {
@@ -88,6 +91,11 @@ export default function Home() {
           <button className="mt-3 w-full border-2 border-[#193a68] bg-white px-6 py-3 text-sm font-black text-[#183153] shadow-[4px_4px_0_#193a68] transition hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0_#193a68] sm:mt-0 sm:w-auto" type="submit">Load event</button>
         </form>
 
+        <section className="mt-8 border-2 border-[#193a68] bg-white p-5 shadow-[4px_4px_0_#193a68]" aria-label="Currently supported venues">
+          <p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Currently supported venues</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{config.supportedVenues.map((item) => <div key={item.id} className="border border-[#193a68] bg-[#eef8ff] px-4 py-3"><p className="text-sm font-black text-[#183153]">{item.name}</p><p className="mt-1 text-xs leading-5 text-[#52739a]">Official venue guide, route links, and weather</p></div>)}</div>
+        </section>
+
         <div className="mt-8">{loading && <LoadingState />}{error && <ErrorState message={error} />}</div>
 
         {event && !loading && <section className="mt-8 grid gap-5 lg:grid-cols-[1.5fr_1fr]">
@@ -96,18 +104,18 @@ export default function Home() {
         </section>}
 
         {event && !loading && <section className="mt-5 grid gap-5 lg:grid-cols-3">
-          <article className="border-2 border-[#193a68] bg-[#eef8ff] p-6 shadow-[4px_4px_0_#193a68]"><div className="flex items-center justify-between gap-3"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Venue rules</p><SectionBadge status={venue?.sourceStatus ?? "Unavailable"} /></div>{contextLoading ? <p className="mt-5 text-sm text-[#31577f]">Loading official venue guidance…</p> : venue?.rules.length ? <ul className="mt-5 space-y-3 text-sm leading-6 text-[#284b76]">{venue.rules.map((rule) => <li key={rule} className="border-l-2 border-[#5baeea] pl-3">{rule}</li>)}</ul> : <p className="mt-5 text-sm text-[#52739a]">Official venue guidance is unavailable right now.</p>}<a className="mt-6 inline-block text-sm font-bold text-[#31577f] underline decoration-2 underline-offset-4" href={config.venueGuideUrl} target="_blank" rel="noreferrer">Open official A–Z guide ↗</a></article>
+          <article className="border-2 border-[#193a68] bg-[#eef8ff] p-6 shadow-[4px_4px_0_#193a68]"><div className="flex items-center justify-between gap-3"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Venue rules</p><SectionBadge status={venue?.sourceStatus ?? "Unavailable"} /></div>{contextLoading ? <p className="mt-5 text-sm text-[#31577f]">Loading official venue guidance…</p> : venue?.rules.length ? <ul className="mt-5 space-y-3 text-sm leading-6 text-[#284b76]">{venue.rules.map((rule) => <li key={rule} className="border-l-2 border-[#5baeea] pl-3">{rule}</li>)}</ul> : <p className="mt-5 text-sm text-[#52739a]">{supportedVenue ? "Official venue guidance is unavailable right now." : "This venue is not supported yet."}</p>}{supportedVenue && <a className="mt-6 inline-block text-sm font-bold text-[#31577f] underline decoration-2 underline-offset-4" href={supportedVenue.guideUrl} target="_blank" rel="noreferrer">Open official venue guide ↗</a>}</article>
           <article className="border-2 border-[#193a68] bg-white p-6 shadow-[4px_4px_0_#193a68]"><div className="flex items-center justify-between gap-3"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Event-day weather</p><SectionBadge status={weather?.sourceStatus ?? "Unavailable"} /></div><p className="mt-5 text-lg font-black leading-7 text-[#183153]">{contextLoading ? "Checking the forecast…" : weather?.summary ?? "Unavailable"}</p><p className="mt-4 text-sm leading-6 text-[#52739a]">Live forecasts are typically available closer to the event date.</p></article>
-          <article className="border-2 border-[#193a68] bg-[#ccecff] p-6 shadow-[4px_4px_0_#193a68]"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Getting there</p><h2 className="mt-3 text-2xl font-black text-[#183153]">Make a route plan</h2><p className="mt-3 text-sm leading-6 text-[#31577f]">Newark Penn Station is a short walk from Prudential Center. Choose your route before event day.</p><div className="mt-5 flex flex-wrap gap-3"><a className="border border-[#193a68] bg-white px-3 py-2 text-sm font-bold text-[#183153] shadow-[2px_2px_0_#193a68]" href={config.transportLinks.njTransit} target="_blank" rel="noreferrer">NJ Transit ↗</a><a className="border border-[#193a68] bg-white px-3 py-2 text-sm font-bold text-[#183153] shadow-[2px_2px_0_#193a68]" href={config.transportLinks.directions} target="_blank" rel="noreferrer">Directions ↗</a><a className="border border-[#193a68] bg-white px-3 py-2 text-sm font-bold text-[#183153] shadow-[2px_2px_0_#193a68]" href={config.transportLinks.parking} target="_blank" rel="noreferrer">Parking ↗</a></div></article>
+          <article className="border-2 border-[#193a68] bg-[#ccecff] p-6 shadow-[4px_4px_0_#193a68]"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Getting there</p><h2 className="mt-3 text-2xl font-black text-[#183153]">Make a route plan</h2><p className="mt-3 text-sm leading-6 text-[#31577f]">{supportedVenue?.transport.description ?? "Route details appear for supported venues."}</p>{supportedVenue && <div className="mt-5 flex flex-wrap gap-3"><a className="border border-[#193a68] bg-white px-3 py-2 text-sm font-bold text-[#183153] shadow-[2px_2px_0_#193a68]" href={supportedVenue.transport.primaryUrl} target="_blank" rel="noreferrer">{supportedVenue.transport.primaryLabel} ↗</a><a className="border border-[#193a68] bg-white px-3 py-2 text-sm font-bold text-[#183153] shadow-[2px_2px_0_#193a68]" href={supportedVenue.transport.directions} target="_blank" rel="noreferrer">Directions ↗</a><a className="border border-[#193a68] bg-white px-3 py-2 text-sm font-bold text-[#183153] shadow-[2px_2px_0_#193a68]" href={supportedVenue.transport.parking} target="_blank" rel="noreferrer">Parking ↗</a></div>}</article>
         </section>}
 
         {event && !loading && <section className="mt-5 grid gap-5 lg:grid-cols-[.8fr_1.2fr]">
-          <article className="border-2 border-[#193a68] bg-white p-6 shadow-[4px_4px_0_#193a68]"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Seat view</p><h2 className="mt-3 text-2xl font-black text-[#183153]">Picture your seat</h2><p className="mt-3 text-sm leading-6 text-[#31577f]">Browse fan-uploaded photos from Prudential Center before you buy or choose your section.</p><a className="mt-6 inline-block border border-[#193a68] bg-[#ccecff] px-4 py-3 text-sm font-black text-[#183153] shadow-[3px_3px_0_#193a68]" href={config.seatViewUrl} target="_blank" rel="noreferrer">Explore seat views ↗</a></article>
+          <article className="border-2 border-[#193a68] bg-white p-6 shadow-[4px_4px_0_#193a68]"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Seat view</p><h2 className="mt-3 text-2xl font-black text-[#183153]">Picture your seat</h2><p className="mt-3 text-sm leading-6 text-[#31577f]">{supportedVenue ? `Browse fan-uploaded photos from ${supportedVenue.name} before you buy or choose your section.` : "Seat-view links appear for supported venues."}</p>{supportedVenue && <a className="mt-6 inline-block border border-[#193a68] bg-[#ccecff] px-4 py-3 text-sm font-black text-[#183153] shadow-[3px_3px_0_#193a68]" href={supportedVenue.seatViewUrl} target="_blank" rel="noreferrer">Explore seat views ↗</a>}</article>
           <article className="border-2 border-[#193a68] bg-[#eef8ff] p-6 shadow-[4px_4px_0_#193a68]"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Recent show history</p><h2 className="mt-3 text-2xl font-black text-[#183153]">See the tour setlists</h2><p className="mt-3 text-sm leading-6 text-[#31577f]">Open LE SSERAFIM&apos;s recent fan-submitted setlists directly on Setlist.fm.</p><a className="mt-6 inline-block border border-[#193a68] bg-white px-4 py-3 text-sm font-black text-[#183153] shadow-[3px_3px_0_#193a68]" href={config.setlistArtistUrl} target="_blank" rel="noreferrer">View Recent Tour Setlists on Setlist.fm ↗</a><p className="mt-5 text-xs text-[#52739a]">Setlist.fm entries are fan-submitted and may be incomplete.</p></article>
         </section>}
 
         {!event && !loading && !error && <div className="mt-8"><EmptyState message="Paste a Ticketmaster event page to see its details and concert preparation checklist." /></div>}
-        {saved.length > 0 && <section className="mt-12 border-t-2 border-[#193a68] pt-8"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Saved events</p><div className="mt-4 grid gap-3 sm:grid-cols-2">{saved.map((item) => <button key={item.sourceUrl} onClick={() => { setEvent(item); setUrl(item.sourceUrl); }} className="border border-[#193a68] bg-white p-4 text-left shadow-[3px_3px_0_#193a68] transition hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_#193a68]"><p className="font-black text-[#183153]">{item.name}</p><p className="mt-1 text-sm text-[#52739a]">{item.venue} · {item.date}</p></button>)}</div></section>}
+        {saved.length > 0 && <section className="mt-12 border-t-2 border-[#193a68] pt-8"><p className="text-xs font-black tracking-[0.14em] text-[#52739a] uppercase">Saved events</p><div className="mt-4 grid gap-3 sm:grid-cols-2">{saved.map((item) => <button key={item.sourceUrl} onClick={() => { setEvent(item); setUrl(item.sourceUrl); void loadContext(item); }} className="border border-[#193a68] bg-white p-4 text-left shadow-[3px_3px_0_#193a68] transition hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_#193a68]"><p className="font-black text-[#183153]">{item.name}</p><p className="mt-1 text-sm text-[#52739a]">{item.venue} · {item.date}</p></button>)}</div></section>}
       </div>
     </main>
   );
