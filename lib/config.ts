@@ -4,6 +4,6 @@ export const config = Object.freeze({
   ticketmasterBaseUrl: "https://app.ticketmaster.com/discovery/v2",
   firecrawlScrapeUrl: "https://api.firecrawl.dev/v2/scrape",
   firecrawlWaitMs: 2000,
-  requestTimeoutMs: 10000,
+  requestTimeoutMs: 25000,
   checklist: ["Confirm the event time", "Review venue entry rules", "Plan your route"] as const,
 });
