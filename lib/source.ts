@@ -96,6 +96,10 @@ function extractedPageEvent(fields: Record<string, unknown>, sourceUrl: string):
   };
 }
 
+function hasEventFacts(event: Event) {
+  return event.name !== unavailable && event.date !== unavailable && event.venue !== unavailable;
+}
+
 async function loadTicketmasterPage(url: string): Promise<Event> {
   const apiKey = process.env.FIRECRAWL_API_KEY;
   if (!apiKey) throw new Error("This event is not indexed by Ticketmaster yet. Add FIRECRAWL_API_KEY in Vercel to enable the public-page fallback.");
@@ -142,7 +146,10 @@ async function loadTicketmasterPage(url: string): Promise<Event> {
       throw new Error(`Firecrawl could not read this Ticketmaster page (status ${response.status}).`);
     }
     const raw = (await response.json()) as { data?: { markdown?: unknown; json?: unknown } };
-    if (raw.data?.json && typeof raw.data.json === "object" && !Array.isArray(raw.data.json)) return extractedPageEvent(raw.data.json as Record<string, unknown>, url);
+    if (raw.data?.json && typeof raw.data.json === "object" && !Array.isArray(raw.data.json)) {
+      const extracted = extractedPageEvent(raw.data.json as Record<string, unknown>, url);
+      if (hasEventFacts(extracted)) return extracted;
+    }
     if (typeof raw.data?.markdown !== "string" || !raw.data.markdown.trim()) throw new Error("Firecrawl reached Ticketmaster but did not return event details.");
     return pageEvent(raw.data.markdown, url);
   } finally {
