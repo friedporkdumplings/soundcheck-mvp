@@ -86,7 +86,14 @@ async function loadTicketmasterPage(url: string): Promise<Event> {
     const response = await fetch(config.firecrawlScrapeUrl, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true, proxy: "auto" }),
+      body: JSON.stringify({
+        url,
+        formats: ["markdown"],
+        onlyMainContent: false,
+        waitFor: config.firecrawlWaitMs,
+        location: { country: "US", languages: ["en-US"] },
+        proxy: "auto",
+      }),
       signal: controller.signal,
       cache: "no-store",
     });
