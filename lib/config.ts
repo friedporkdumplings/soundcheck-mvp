@@ -19,7 +19,9 @@ const supportedVenues: SupportedVenue[] = [
 
 export function supportedVenueFor(venueName?: string): SupportedVenue | null {
   const normalized = venueName?.toLowerCase().trim() ?? "";
-  return supportedVenues.find((venue) => venue.aliases.some((alias) => normalized.includes(alias))) ?? null;
+  return supportedVenues
+    .flatMap((venue) => venue.aliases.filter((alias) => normalized.includes(alias)).map((alias) => ({ venue, specificity: alias.length })))
+    .sort((a, b) => b.specificity - a.specificity)[0]?.venue ?? null;
 }
 
 export const config = Object.freeze({
