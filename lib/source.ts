@@ -45,7 +45,7 @@ export async function loadEvent(url: string): Promise<Event> {
   const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs);
   try {
     const response = await fetch(
-      `${config.ticketmasterBaseUrl}/events/${match[1]}?apikey=${encodeURIComponent(apiKey)}`,
+      `${config.ticketmasterBaseUrl}/events/${match[1]}.json?apikey=${encodeURIComponent(apiKey)}`,
       { signal: controller.signal, cache: "no-store" },
     );
     if (!response.ok) throw new Error("Ticketmaster could not load that event.");
